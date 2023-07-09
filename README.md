@@ -35,5 +35,5 @@ For the orignial code, please click [here](https://github.com/Grey-Xu-Yang/ESG_F
 ## ESG mediating the Relationship between company typology and financial performance
 
 <p align="center">
-<img src="/Mediation.jpeg">
+<img src="/mediation.jpeg">
 </p>
