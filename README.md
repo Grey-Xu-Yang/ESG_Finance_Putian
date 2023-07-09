@@ -19,9 +19,21 @@ and financial performance via environmental, social, and governance indicators. 
 important implications for future policy intervention among small-medium size enterprises that
 stimulate corporate social responsibility.
 
+## Full Article
 For the full article, please click [here](https://github.com/Grey-Xu-Yang/ESG_Finance_Putian/blob/main/Xu_Environmental_Sciences_Senior_Thesis.pdf)
+
+## Original Code
+
+For the orignial code, please click [here](https://github.com/Grey-Xu-Yang/ESG_Finance_Putian/blob/main/RF_clustering.Rmd)
+
 ## Radar plot of the six ESG typology
 
 <p align="center">
 <img src="/Rplot.jpeg">
+</p>
+
+## ESG mediating the Relationship between company typology and financial performance
+
+<p align="center">
+<img src="/Mediation.jpeg">
 </p>
