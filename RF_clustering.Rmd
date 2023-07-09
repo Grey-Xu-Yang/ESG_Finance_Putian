@@ -1,0 +1,664 @@
+---
+title: "Putian_data_clean"
+author: "Grey Xu"
+date: "1/19/2022"
+output: pdf_document
+---
+__Part A Data Cleaning__
+```{r}
+library(readxl)
+putian = read_excel("putian.xlsx")
+```
+_Get the percentage score for each indicator_
+```{r}
+# Get the column name of each indicator
+level_3_name = character(216/2)
+name_try = colnames(putian)[99:314]
+for (i in 1:216){
+  if (i %% 2 == 0){
+    level_3_name[i/2] = name_try[i]
+  }
+}
+level_3_final = putian[,1:108]
+colnames(level_3_final) = level_3_name
+
+# Caculate the percentage by dividing score with full score for each indicator
+level_3 = putian[,99:314]
+level_3[,1:216] = sapply(level_3[,1:216], as.numeric)
+for (i in 1:216){
+  if (i %% 2 == 0){
+    level_3_final[,i/2] = level_3[,i]/level_3[,i-1]
+  }
+}
+
+# Replace NaN value with 0
+level_3_final[is.na(level_3_final)] = 0
+
+# Check descriptive Statistics of all variables
+#summary(level_3_final)
+```
+
+_Add and transform important feature for further analysis_
+```{r}
+putian_final = putian[,c(1,3:7,16,20,24,28,32)]
+putian_final = cbind(putian_final,level_3_final)
+putian_final$`Evaluation time` = as.Date(putian_final$`Evaluation time`)
+putian_final$`Operating income (ten thousand yuan)` = as.numeric(putian_final$`Operating income (ten thousand yuan)`)
+putian_final$`Number of employees` = as.numeric(putian_final$`Number of employees`)
+putian_final$`First-level industry` = as.factor(putian_final$`First-level industry`)
+putian_final$`Second-level industry` = as.factor(putian_final$`Second-level industry`)
+putian_final[,7:11] = sapply(putian_final[,7:11], as.numeric)
+```
+_Remove columns with identical values_
+```{r}
+putian_final = putian_final[vapply(putian_final, function(x) length(unique(x)) > 1, logical(1L))]
+putian_final$`Weighted Governance dimension score (Level 1)`= as.numeric(putian$`Governance Dimension Score (Level 1)`)
+# Select the column with ESG and leave the remaining as response variable
+# putian_final_F = putian_final[,49:62]
+```
+
+__Part B. Generate ESG typology by clustering__
+_Step 1 Generate Composite variable from 36 ESGF variables_
+```{r}
+# Load different library
+library(tidyverse)
+library(randomForest)
+library(cluster)
+library(anocva)
+library(ClustOfVar)
+library(psych)
+library(tibble)
+library(clustree)
+library(readxl)
+library(writexl)
+library(psycho)
+```
+_1.1 Importance score of each variable from Unsupervised random forest_
+```{r}
+set.seed(1112)
+#Unsupervised RF
+RFN <- randomForest(putian_final[,12:48],ntree=10000,mtry=8,importance=TRUE,proximity=TRUE,nodesize=10,keep.forest=TRUE,do.trace=FALSE)
+
+varImpPlot(RFN,n.var=36,cex = 0.55, main = "Fig B1. Performance of Random Forest of 36 variables")
+
+```
+
+_1.2 Use hcluster to clusters variables in a hierarchical fashion_
+```{r}
+tree_ESG = hclustvar(putian_final[,12:48])
+set.seed(1112)
+stab_ESG = stability(tree_ESG,B = 40)
+plot(stab_ESG,cex = 0.6, main = "ESG: Number of Variables Clusters by mean adjusted Rand criterion")
+
+tree_ESG.cut = cutreevar(tree_ESG,12)
+tree_ESG.cut$var
+```
+
+```{r eval=FALSE}
+tree_F = hclustvar(putian_final[,49:62])
+set.seed(1112)
+stab_F = stability(tree_F,B = 40)
+plot(stab_F,cex = 0.6, main = "F: Number of Variables Clusters by mean adjusted Rand criterion")
+
+tree_F.cut = cutreevar(tree_F, 4)
+tree_F.cut$var
+```
+_1.3 Generate Composite Variable by principle component _
+```{r}
+group_var = putian_final[,12:48]
+
+for (i in 1:ncol(group_var)){
+  group_var[,i] = as.numeric(unlist(group_var[,i]))
+  group_var[,i] = scale(group_var[,i]) 
+}
+
+product_data = data.frame(
+product_quality = group_var$`Score for Product Quality (Level 3)`,
+green_product = group_var$`Green Production Score (Level 3)`,
+property_right = group_var$`Score for Property Rights Protection (Level 3)`
+)
+
+socioenviron_respons_data = data.frame(welfare_concept = group_var$`Score for Public Welfare Concept (Level 3)`,
+social_respons_target = group_var$`Social Responsibility Target Score (Level 3)`,
+environ_input = group_var$`Environmental Protection Input Score (Level 3)`,
+land_protect = group_var$`Land Protection and Restoration Score (Level 3)`
+)
+
+pollution_control_data = data.frame(
+water_pollution = group_var$`The score of water pollution prevention and control (level 3)`,
+hazardous_waste = group_var$`Hazardous Waste and Waste Treatment and Disposal Score (Level 3)`,
+exhaust_gas = group_var$`The score of exhaust gas pollution prevention and control (level 3)`
+)
+
+internal_governance_data = data.frame(
+financial_system = group_var$`Financial system score (level 3)`,
+compensation_system = group_var$`Compensation system score (level 3)`,
+corruption_prevent = group_var$`Corruption Prevention Score (Level 3)`,
+internal_control = group_var$`Score of internal control system (level 3)`
+)
+
+human_capital_data = data.frame(
+employee_development = group_var$`Employee Career Development Score (Level 3)`
+)
+
+
+#public_integrity_data = data.frame(
+#integrity = group_var$`Information Disclosure Score (Level 3)`,
+#tax = group_var$`Integrity Tax Payment Score (Level 3)`
+#)
+
+#progressiveness_data = data.frame(
+#collaboration =  group_var$`Industry Collaboration Score (Level 3)`,
+#tech_innovation = group_var$`Score for Technological Innovation (Level 3)`
+#)
+
+```
+#PCA for compostive variable
+```{r}
+product <- principal(product_data, nfactors=1, score=TRUE)$scores
+socioenviron_respons <- principal(socioenviron_respons_data, nfactors=1, score=TRUE)$scores
+pollution_control <- principal(pollution_control_data, nfactors=1, score=TRUE)$scores
+internal_governance <- principal(internal_governance_data, nfactors=1, score=TRUE)$scores
+human_capital <- principal(human_capital_data, nfactors=1, score=TRUE)$scores
+
+#public_integrity <- principal(public_integrity_data, nfactors=1, score=TRUE)$scores
+#progressiveness <- principal(progressiveness_data, nfactors=1, score=TRUE)$scores
+
+
+putian_final[,"product"] = product
+putian_final[,"socioenviron_respons"] = socioenviron_respons
+putian_final[,"pollution_control"] = pollution_control
+putian_final[,"internal_governance"] = internal_governance
+putian_final[,"human_capital"] = human_capital
+
+#putian_final[,"public_integrity"] = public_integrity
+#putian_final[,"progressiveness"] = progressiveness
+```
+__Step 2. Unsupervised RF and Clustering using 6 composite variables__
+```{r}
+set.seed(1112)
+RFN2 <- randomForest(putian_final[,63:67],ntree=10000,mtry = 5,importance=TRUE,proximity=TRUE,nodesize=10,keep.forest=TRUE,do.trace=FALSE)
+varImpPlot(RFN2,n.var=5,cex = 0.6, main = "Fig.B2 Performance of 5 Composite variables")
+
+plot(density(RFN2$proximity))
+RFN2_dist <- as.dist(1-RFN2$proximity)
+```
+
+# Spectral Clustering
+```{r}
+pred2.part.1 <- spectralClustering(RFN2$proximity, k=1)
+pred2.part.2 <- spectralClustering(RFN2$proximity, k=2)
+pred2.part.3 <- spectralClustering(RFN2$proximity, k=3)
+pred2.part.4 <- spectralClustering(RFN2$proximity, k=4)
+pred2.part.5 <- spectralClustering(RFN2$proximity, k=5)
+pred2.part.6 <- spectralClustering(RFN2$proximity, k=6)
+pred2.part.7 <- spectralClustering(RFN2$proximity, k=7)
+pred2.part.8 <- spectralClustering(RFN2$proximity, k=8)
+pred2.part.9 <- spectralClustering(RFN2$proximity, k=9)
+pred2.part.10 <- spectralClustering(RFN2$proximity, k=10)
+pred2.part.11 <- spectralClustering(RFN2$proximity, k=11)
+pred2.part.12 <- spectralClustering(RFN2$proximity, k=12)
+pred2.part.13 <- spectralClustering(RFN2$proximity, k=13)
+pred2.part.14 <- spectralClustering(RFN2$proximity, k=14)
+pred2.part.15 <- spectralClustering(RFN2$proximity, k=15)
+pred2.part.16 <- spectralClustering(RFN2$proximity, k=16)
+pred2.part.17 <- spectralClustering(RFN2$proximity, k=17)
+pred2.part.18 <- spectralClustering(RFN2$proximity, k=18)
+pred2.part.19 <- spectralClustering(RFN2$proximity, k=19)
+pred2.part.20 <- spectralClustering(RFN2$proximity, k=20)
+
+clust_diff = data.frame(c_1_clusters= pred2.part.1,
+                        c_2_clusters= pred2.part.2,
+                        c_3_clusters= pred2.part.3,
+                        c_4_clusters= pred2.part.4,
+                        c_5_clusters= pred2.part.5,
+                        c_6_clusters= pred2.part.6,
+                        c_7_clusters= pred2.part.7,
+                        c_8_clusters= pred2.part.8,
+                        c_9_clusters= pred2.part.9,
+                        c_10_clusters= pred2.part.10
+                        )
+
+clustree(clust_diff, prefix = "c_", suffix = "_clusters",edge_width = 0.75)
+```
+# Random Forest
+```{r}
+set.seed(1112)
+P2C2 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.2), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+set.seed(1112)
+P2C3 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.3), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+set.seed(1112)
+P2C4 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.4), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+set.seed(1112)
+P2C5 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.5), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+set.seed(1112)
+P2C6 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.6), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+set.seed(1112)
+P2C7 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.7), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+set.seed(1112)
+P2C8 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.8), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+set.seed(1112)
+P2C9 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.9), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+set.seed(1112)
+P2C10 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.10), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+set.seed(1112)
+P2C11 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.11), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+set.seed(1112)
+P2C12 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.12), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+set.seed(1112)
+P2C13 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.13), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+set.seed(1112)
+P2C14 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.14), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+set.seed(1112)
+P2C15 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.15), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+set.seed(1112)
+P2C16 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.16), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+set.seed(1112)
+P2C17 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.17), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+set.seed(1112)
+P2C18 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.18), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+set.seed(1112)
+P2C19 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.19), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+set.seed(1112)
+P2C20 <- randomForest(x =putian_final[,63:67], y=as.factor(pred2.part.20), ntree=10000, mtry = 5,importance=FALSE,proximity=FALSE,nodesize=1,keep.forest=TRUE,do.trace=FALSE)
+
+tuneRF(putian_final[,63:67],pred2.part.6,main = "Hi")
+# mtry of 2 is stable (less variation as k changes), gives support for PC17, mtry of 4 is not stable (lots of variation as k changes), but also gives support for PC17. other mtrys are worse at prediction accuracy. 
+# tried mtry of 1,2,3,4,6,7
+# mtry 2 also gives better global (#obs predicted) and local (#obs in high accuracy clusters) results
+```
+
+__Step 5: Initial CLustering and Choosing the Number of Clusters__
+```{r}
+P2C2E <- P2C2$confusion[,3]
+P2C2N <- table(pred2.part.2)
+P2C2V <- sum(P2C2E * P2C2N)
+
+P2C3E <- P2C3$confusion[,4]
+P2C3N <- table(pred2.part.3)
+P2C3V <- sum(P2C3E * P2C3N)
+
+P2C4E <- P2C4$confusion[,5]
+P2C4N <- table(pred2.part.4)
+P2C4V <- sum(P2C4E * P2C4N)
+
+P2C5E <- P2C5$confusion[,6]
+P2C5N <- table(pred2.part.5)
+P2C5V <- sum(P2C5E * P2C5N)
+
+P2C6E <- P2C6$confusion[,7]
+P2C6N <- table(pred2.part.6)
+P2C6V <- sum(P2C6E * P2C6N)
+
+P2C7E <- P2C7$confusion[,8]
+P2C7N <- table(pred2.part.7)
+P2C7V <- sum(P2C7E * P2C7N)
+
+P2C8E <- P2C8$confusion[,9]
+P2C8N <- table(pred2.part.8)
+P2C8V <- sum(P2C8E * P2C8N)
+
+P2C9E <- P2C9$confusion[,10]
+P2C9N <- table(pred2.part.9)
+P2C9V <- sum(P2C9E * P2C9N)
+
+P2C10E <- P2C10$confusion[,11]
+P2C10N <- table(pred2.part.10)
+P2C10V <- sum(P2C10E * P2C10N)
+
+P2C11E <- P2C11$confusion[,12]
+P2C11N <- table(pred2.part.11)
+P2C11V <- sum(P2C11E * P2C11N)
+
+P2C12E <- P2C12$confusion[,13]
+P2C12N <- table(pred2.part.12)
+P2C12V <- sum(P2C12E * P2C12N)
+
+P2C13E <- P2C13$confusion[,14]
+P2C13N <- table(pred2.part.13)
+P2C13V <- sum(P2C13E * P2C13N)
+
+P2C14E <- P2C14$confusion[,15]
+P2C14N <- table(pred2.part.14)
+P2C14V <- sum(P2C14E * P2C14N)
+
+P2C15E <- P2C15$confusion[,16]
+P2C15N <- table(pred2.part.15)
+P2C15V <- sum(P2C15E * P2C15N)
+
+P2C16E <- P2C16$confusion[,17]
+P2C16N <- table(pred2.part.16)
+P2C16V <- sum(P2C16E * P2C16N)
+
+P2C17E <- P2C17$confusion[,18]
+P2C17N <- table(pred2.part.17)
+P2C17V <- sum(P2C17E * P2C17N)
+
+P2C18E <- P2C18$confusion[,19]
+P2C18N <- table(pred2.part.18)
+P2C18V <- sum(P2C18E * P2C18N)
+
+P2C19E <- P2C19$confusion[,20]
+P2C19N <- table(pred2.part.19)
+P2C19V <- sum(P2C19E * P2C19N)
+
+P2C20E <- P2C20$confusion[,21]
+P2C20N <- table(pred2.part.20)
+P2C20V <- sum(P2C20E * P2C20N)
+
+total_misclassified = c(P2C2V,
+P2C3V,
+P2C4V,
+P2C5V,
+P2C6V,
+P2C7V,
+P2C8V,
+P2C9V,
+P2C10V,
+P2C11V,
+P2C12V,
+P2C13V,
+P2C14V,
+P2C15V,
+P2C16V,
+P2C17V,
+P2C18V,
+P2C19V,
+P2C20V
+)
+
+cluster_15_error = c(
+sum((P2C2E<.15) * P2C2N),
+sum((P2C3E<.15) * P2C3N),
+sum((P2C4E<.15) * P2C4N),
+sum((P2C5E<.15) * P2C5N),
+sum((P2C6E<.15) * P2C6N),
+sum((P2C7E<.15) * P2C7N),
+sum((P2C8E<.15) * P2C8N),
+sum((P2C9E<.15) * P2C9N),
+sum((P2C10E<.15) * P2C10N),
+sum((P2C11E<.15) * P2C11N),
+sum((P2C12E<.15) * P2C12N),
+sum((P2C13E<.15) * P2C13N),
+sum((P2C14E<.15) * P2C14N),
+sum((P2C15E<.15) * P2C15N),
+sum((P2C16E<.15) * P2C16N),
+sum((P2C17E<.15) * P2C17N),
+sum((P2C18E<.15) * P2C18N),
+sum((P2C19E<.15) * P2C19N),
+sum((P2C20E<.15) * P2C20N)
+)
+
+cluster_20_error = c(
+sum((P2C2E<.2) * P2C2N),
+sum((P2C3E<.2) * P2C3N),
+sum((P2C4E<.2) * P2C4N),
+sum((P2C5E<.2) * P2C5N),
+sum((P2C6E<.2) * P2C6N),
+sum((P2C7E<.2) * P2C7N),
+sum((P2C8E<.2) * P2C8N),
+sum((P2C9E<.2) * P2C9N),
+sum((P2C10E<.2) * P2C10N),
+sum((P2C11E<.2) * P2C11N),
+sum((P2C12E<.2) * P2C12N),
+sum((P2C13E<.2) * P2C13N),
+sum((P2C14E<.2) * P2C14N),
+sum((P2C15E<.2) * P2C15N),
+sum((P2C16E<.2) * P2C16N),
+sum((P2C17E<.2) * P2C17N),
+sum((P2C18E<.2) * P2C18N),
+sum((P2C19E<.2) * P2C19N),
+sum((P2C20E<.2) * P2C20N)
+)
+
+cluster_25_error = c(
+sum((P2C2E<.25) * P2C2N),
+sum((P2C3E<.25) * P2C3N),
+sum((P2C4E<.25) * P2C4N),
+sum((P2C5E<.25) * P2C5N),
+sum((P2C6E<.25) * P2C6N),
+sum((P2C7E<.25) * P2C7N),
+sum((P2C8E<.25) * P2C8N),
+sum((P2C9E<.25) * P2C9N),
+sum((P2C10E<.25) * P2C10N),
+sum((P2C11E<.25) * P2C11N),
+sum((P2C12E<.25) * P2C12N),
+sum((P2C13E<.25) * P2C13N),
+sum((P2C14E<.25) * P2C14N),
+sum((P2C15E<.25) * P2C15N),
+sum((P2C16E<.25) * P2C16N),
+sum((P2C17E<.25) * P2C17N),
+sum((P2C18E<.25) * P2C18N),
+sum((P2C19E<.25) * P2C19N),
+sum((P2C20E<.25) * P2C20N))
+
+
+cluster_30_error = c(
+sum((P2C2E<.3) * P2C2N),
+sum((P2C3E<.3) * P2C3N),
+sum((P2C4E<.3) * P2C4N),
+sum((P2C5E<.3) * P2C5N),
+sum((P2C6E<.3) * P2C6N),
+sum((P2C7E<.3) * P2C7N),
+sum((P2C8E<.3) * P2C8N),
+sum((P2C9E<.3) * P2C9N),
+sum((P2C10E<.3) * P2C10N),
+sum((P2C11E<.3) * P2C11N),
+sum((P2C12E<.3) * P2C12N),
+sum((P2C13E<.3) * P2C13N),
+sum((P2C14E<.3) * P2C14N),
+sum((P2C15E<.3) * P2C15N),
+sum((P2C16E<.3) * P2C16N),
+sum((P2C17E<.3) * P2C17N),
+sum((P2C18E<.3) * P2C18N),
+sum((P2C19E<.3) * P2C19N),
+sum((P2C20E<.3) * P2C20N))
+
+
+data2 = data.frame(total_misclassified = total_misclassified,
+                  n_cluster_less20_error = cluster_20_error,
+                  n_cluster_less25_error = cluster_25_error,
+                  n_cluster_less30_error = cluster_30_error)
+
+#Select the optimal number of clusters
+matplot(data2,type = c("l"),pch=1,col = 1:4,xlab = "number of clusters",ylab = "observations",main = "Fig. A3: Random Forest Prediction Accuracy by Number of Clusters", cex = 0.6)
+ legend("bottomright", legend = names(data2)[1:4], col=1:4, pch=1,cex = 0.8)
+
+data2$number_cluster = c(2:20)
+data2
+```
+
+_Means of z-scored variables for 7 clusters with predtiction error less than 25%_
+```{r}
+putian_final3 = putian_final
+
+for (i in 1:ncol(putian_final3)){
+  putian_final3[,i] = as.numeric(unlist(putian_final3[,i]))
+}
+
+putian_final3$n_cluster_6 = as.numeric(pred2.part.6)
+
+s6 = data.frame((P2C6E< 0.25) * P2C6N)
+exist6 = s6$pred2.part.6[s6$Freq != 0]
+count6 = s6$Freq[s6$Freq != 0]
+select6 = putian_final3$n_cluster_6 %in% exist6
+data6 = putian_final3[select6,]
+
+agg_6_list = aggregate(data6,
+                by = list(as.factor(data6$n_cluster_6)),
+                FUN = list)
+
+agg_new_6 = agg_6_list[FALSE,]
+
+for (i in 1:ncol(agg_new_6)){
+ agg_new_6[,names(agg_new_6)[i]] = as.numeric(unlist(agg_new_6[,names(agg_new_6)[i]])) 
+}
+
+for(i in 1:6){
+  for (j in 2:ncol(agg_6_list)){
+    agg_new_6[i,j] = mean((unlist(agg_6_list[,names(agg_new_6)[j]][i]) - mean(unlist(putian_final3[,names(agg_new_6)[j]])))/sd(unlist(putian_final3[,names(agg_new_6)[j]])))
+  }
+}
+agg_new_6 = agg_new_6[!is.na(agg_new_6$`Sample name (digital code)`),]
+agg_new_6$Group.1 = agg_6_list$Group.1
+names(agg_new_6)[1] = "cluster"
+rownames(agg_new_6) = agg_new_6$cluster
+
+agg_new_6$n_observations  = count6
+agg_new_6$prediction_error = P2C6E[P2C6E < 0.25]
+
+mean_6 = data.frame(t(subset(agg_new_6, select = - c(`Sample name (digital code)`,`Evaluation time`,`First-level industry`,`Second-level industry`))))
+mean_6 = add_column(mean_6, variables = rownames(mean_6), .before = "X1")
+write_xlsx(mean_6,"Mean_zscore_table2.xlsx")
+```
+# Create Radar Map
+```{r}
+n <- mean_6$variables
+# transpose all but the first column (name)
+mean_6t <- as.data.frame(t(mean_6[,-1]))
+colnames(mean_6t) <- n
+
+mean_6n = mean_6t[c(1,2),]
+mean_6n[1,] = rep(1.5,67)
+mean_6n[2,] = rep(-1.5,67)
+
+# Bind the variable ranges to the data
+mean_6_data <- rbind(mean_6n, mean_6t)
+for (i in 1:ncol(mean_6_data)){
+  mean_6_data[,i] = as.numeric(mean_6_data[,i])
+}
+
+library(fmsb)
+colors <- c("#E74C3C", "#FFA500","#F1C40F","#2ECC71","#5DADE2","#6E44AD")
+titles <- c("Stringent Governance (n=59)","Product oriented (n=81)","ESG limited (n=276)","ESG champion (n=229)","Philanthropic leader (n=103)","Human capital investment (n=162)")
+
+create_beautiful_radarchart <- function(data, color = "#00AFBB", 
+                                        vlabels = colnames(data), vlcex = 1,
+                                        caxislabels = NULL, title = NULL, ...){
+  radarchart(
+    data, axistype = 1,
+    # Customize the polygon
+    pcol = color, pfcol = scales::alpha(color, 0.5), plwd = 2, plty = 1,
+    # Customize the grid
+    cglcol = "grey", cglty = 1, cglwd = 0.8,
+    # Customize the axis
+    axislabcol = "black", 
+    # Variable labels
+    vlcex = vlcex, vlabels = vlabels,
+    caxislabels = caxislabels, title = title, ...
+  )
+}
+# Reduce plot margin using par()
+# Split the screen in 3 parts
+op <- par(mar = c(1, 1, 1, 1))
+par(mfrow = c(2,3))
+# Create the radar chart
+for(i in 1:6){
+  create_beautiful_radarchart(
+    data = mean_6_data[c(1:2, i+2), 60:64], caxislabels = c(-1.5, -0.75, 0, 0.75, 1.5),
+    color = colors[i], title = titles[i]
+    )
+}
+par(op)
+
+```
+_Part C. Mediation Regression model_
+__Step 1. Clean the dataset and Descriptive Statistics__
+```{r}
+colnames(putian_final)[1] = "Firm ID"
+colnames(putian_final)[3] = "Total_Income"
+colnames(putian_final)[4] = "Number_of_employee"
+colnames(putian_final)[5] = "Industry_type"
+colnames(putian_final)[7] = "Total_score"
+
+putian_final$Environment = as.numeric(putian$`Score of environmental dimension after weight (level 1)`)/as.numeric(putian$`Full score of environmental dimension after weighting (level 1)`)
+putian_final$Social = as.numeric(putian$`Weighted Social Dimension Score (Level 1)`)/as.numeric(putian$`Full score of social dimension after weight Score (Level 1)`)
+putian_final$Governance = as.numeric(putian$`Governance Dimension Score (Level 1)`)/as.numeric(putian$`Governance Dimension Full Score (Level 1)`)
+putian_final$Economic = as.numeric(putian$`Weighted economic dimension score (Level 1)`)/as.numeric(putian$`Weighted economic dimension full score (Level 1)`)
+
+putian_final$Number_of_employee = putian_final$Number_of_employee
+putian_final$Industry_type = as.factor(putian_final$Industry_type)
+putian_final$District = as.factor(putian$`Registered address (county)`)
+putian_final$cluster_ID  = as.numeric(pred2.part.6)
+putian_final$cluster_ID[putian_final$cluster_ID == 1] = "Stringent Governance"
+putian_final$cluster_ID[putian_final$cluster_ID == 2] = "Product oriented"
+putian_final$cluster_ID[putian_final$cluster_ID == 3] = "ESG limited"
+putian_final$cluster_ID[putian_final$cluster_ID == 4] = "ESG champion"
+putian_final$cluster_ID[putian_final$cluster_ID == 5] = "Philanthropic leader"
+putian_final$cluster_ID[putian_final$cluster_ID == 6] = "Human capital investment"
+putian_final$cluster_ID = as.factor(putian_final$cluster_ID)
+putian_final <- within(putian_final, cluster_ID <- relevel(cluster_ID, ref = "ESG limited"))
+```
+
+```{r}
+stargazer(putian_final[,c("Environment","Social","Governance","Economic","product","socioenviron_respons","pollution_control","internal_governance","human_capital","Number_of_employee")],type = "html",out = "des.html")
+```
+
+
+_Step 2. Run the mediation model with Environment Mediator_
+```{r}
+library(stargazer)
+fit.total =  lm(Economic ~ cluster_ID , data = putian_final)
+fit.mediator =  lm(Environment ~ cluster_ID, data = putian_final)
+fit.dv =  lm(Economic ~ cluster_ID + Environment, data = putian_final)
+stargazer(fit.total,fit.mediator,fit.dv, type = "html",title = "Table 1: Mediation model with Environment Indicator as mediator",out = "Table1.html")
+```
+
+```{r}
+library(mediation)
+results1 = mediate(fit.mediator, fit.dv, treat='cluster_ID', mediator='Environment', sims = 1000, control.value = "ESG limited", treat.value = "ESG champion")
+summary(results1)
+results2 = mediate(fit.mediator, fit.dv, treat='cluster_ID', mediator='Environment', sims = 1000, control.value = "ESG limited", treat.value = "Human capital investment")
+summary(results2)
+results3 = mediate(fit.mediator, fit.dv, treat='cluster_ID', mediator='Environment', sims = 1000, control.value = "ESG limited", treat.value = "Philanthropic leader")
+summary(results3)
+results4 = mediate(fit.mediator, fit.dv, treat='cluster_ID', mediator='Environment', sims = 1000, control.value = "ESG limited", treat.value = "Product oriented")
+summary(results4)
+results5 = mediate(fit.mediator, fit.dv, treat='cluster_ID', mediator='Environment', sims = 1000, control.value = "ESG limited", treat.value = "Stringent Governance")
+summary(results5)
+```
+_Step 3. Run the mediation model with Social Mediator_
+```{r}
+library(stargazer)
+fit.total =  lm(Economic ~ cluster_ID , data = putian_final)
+fit.mediator =  lm(Social ~ cluster_ID, data = putian_final)
+fit.dv =  lm(Economic ~ cluster_ID + Social, data = putian_final)
+stargazer(fit.total,fit.mediator,fit.dv, type = "html",title = "Table 3: Mediation model with Social Indicator as mediator", out = "Table3.html")
+```
+
+```{r}
+library(mediation)
+results1 = mediate(fit.mediator, fit.dv, treat='cluster_ID', mediator='Social', sims = 1000, control.value = "ESG limited", treat.value = "ESG champion")
+summary(results1)
+results2 = mediate(fit.mediator, fit.dv, treat='cluster_ID', mediator='Social', sims = 1000, control.value = "ESG limited", treat.value = "Human capital investment")
+summary(results2)
+results3 = mediate(fit.mediator, fit.dv, treat='cluster_ID', mediator='Social', sims = 1000, control.value = "ESG limited", treat.value = "Philanthropic leader")
+summary(results3)
+results4 = mediate(fit.mediator, fit.dv, treat='cluster_ID', mediator='Social', sims = 1000, control.value = "ESG limited", treat.value = "Product oriented")
+summary(results4)
+results5 = mediate(fit.mediator, fit.dv, treat='cluster_ID', mediator='Social', sims = 1000, control.value = "ESG limited", treat.value = "Stringent Governance")
+summary(results5)
+```
+_Step 4. Run the mediation model with Governance Mediator_
+```{r}
+library(stargazer)
+fit.total =  lm(Economic ~ cluster_ID , data = putian_final)
+fit.mediator =  lm(Governance ~ cluster_ID, data = putian_final)
+fit.dv =  lm(Economic ~ cluster_ID + Governance, data = putian_final)
+stargazer(fit.total,fit.mediator,fit.dv, type = "html",title = "Table 5: Mediation model with Governance Indicator as mediator", out = "Table5.html")
+```
+
+```{r}
+library(mediation)
+results1 = mediate(fit.mediator, fit.dv, treat='cluster_ID', mediator='Governance', sims = 1000, control.value = "ESG limited", treat.value = "ESG champion")
+summary(results1)
+results2 = mediate(fit.mediator, fit.dv, treat='cluster_ID', mediator='Governance', sims = 1000, control.value = "ESG limited", treat.value = "Human capital investment")
+summary(results2)
+results3 = mediate(fit.mediator, fit.dv, treat='cluster_ID', mediator='Governance', sims = 1000, control.value = "ESG limited", treat.value = "Philanthropic leader")
+summary(results3)
+results4 = mediate(fit.mediator, fit.dv, treat='cluster_ID', mediator='Governance', sims = 1000, control.value = "ESG limited", treat.value = "Product oriented")
+summary(results4)
+results5 = mediate(fit.mediator, fit.dv, treat='cluster_ID', mediator='Governance', sims = 1000, control.value = "ESG limited", treat.value = "Stringent Governance")
+summary(results5)
+```
+
