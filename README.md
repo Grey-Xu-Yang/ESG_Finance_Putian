@@ -18,3 +18,10 @@ the mediation analysis strongly supports the mediation mechanism between the com
 and financial performance via environmental, social, and governance indicators. This study has
 important implications for future policy intervention among small-medium size enterprises that
 stimulate corporate social responsibility.
+
+For the full article, please click [here](https://github.com/Grey-Xu-Yang/ESG_Finance_Putian/blob/main/Xu_Environmental_Sciences_Senior_Thesis.pdf)
+## Radar plot of the six ESG typology
+
+<p align="center">
+<img src="/Rplot.jpeg">
+</p>
